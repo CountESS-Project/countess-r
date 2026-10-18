@@ -1,0 +1,55 @@
+[project]
+name = 'countess-r'
+dynamic = ["version"]
+readme = "README.md"
+authors = [
+    { name = "Nick Moore", email="nick@zoic.org" },
+]
+maintainers = [
+    { name = "Nick Moore", email="nick@zoic.org" },
+]
+description = "Embedding R into CountESS"
+requires-python = ">=3.10"
+classifiers = [
+    'Development Status :: 2 - Pre-Alpha',
+    'Intended Audience :: Science/Research',
+    'Operating System :: OS Independent',
+    'Programming Language :: Python :: 3',
+    'Topic :: Scientific/Engineering :: Bio-Informatics',
+]
+dependencies = [
+    "countess>=0.1.27",
+    "rpy2~=3.6.9",
+]
+license = "BSD-3-Clause"
+
+[project.urls]
+Homepage = "https://github.com/CountESS-Project/countess-r"
+Repository = "https://github.com/CountESS-Project/countess-r.git"
+
+[project.optional-dependencies]
+dev = [
+    "countess[dev]>=0.1.27",
+]
+
+[project.entry-points.countess_plugins]
+minimap2 = "countess_r:RPlugin"
+
+[tool.setuptools.dynamic]
+version = { attr = "countess_r.VERSION" }
+readme = { file = "README.md", content-type="text/markdown" }
+
+[tool.pylint]
+disable = [
+    "fixme",
+    "invalid-name",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "missing-module-docstring",
+    "no-else-return",
+    "too-many-ancestors",
+]
+max-line-length = 120
+
+[tool.black]
+line-length = 120

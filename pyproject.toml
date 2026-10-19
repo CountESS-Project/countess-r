@@ -33,7 +33,7 @@ dev = [
 ]
 
 [project.entry-points.countess_plugins]
-minimap2 = "countess_r:RPlugin"
+minimap2 = "countess_r:RStatementPlugin"
 
 [tool.setuptools.dynamic]
 version = { attr = "countess_r.VERSION" }

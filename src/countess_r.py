@@ -9,6 +9,7 @@ from duckdb import DuckDBPyConnection, DuckDBPyRelation
 
 from countess.core.plugins import DuckdbSimplePlugin
 from countess.core.parameters import TextParam, DataTypeChoiceParam
+from countess.utils.duckdb import duckdb_dtype_is_boolean, duckdb_dtype_is_integer, duckdb_dtype_is_numeric
 
 VERSION = '0.0.1'
 
@@ -51,20 +52,20 @@ class RStatementPlugin(DuckdbSimplePlugin):
                         schema[name] = ttype
                 return_type = duckdb.struct_type(schema)
 
-                def wrapper(data: dict[str, Any]) -> Optional[Dict[str, Any]]:
+                def wrapper(df: dict[str, Any]) -> Optional[Dict[str, Any]]:
                     with robjects.conversion.localconverter(robjects.default_converter):
                         for fname, func in functions.items():
                             parameters = {
-                                k: data[k]
+                                k: df[k]
                                 for k in func.__signature__.parameters.keys()
-                                if k in data
+                                if k in df
                             }
                             try:
-                                data.update({ fname: schema[fname](func(**parameters)[0]) })
+                                df.update({ fname: schema[fname](func(**parameters)[0]) })
                             except (RRuntimeError, duckdb.InvalidInputException) as exc:
-                                data.update({ fname: None })
+                                df.update({ fname: None })
                                 logger.warning("CAUGHT EXCEPTION " + str(exc))
-                        return data
+                        return df
 
                 function_name = "f_" + secrets.token_hex(16)
                 ddbc.create_function( # type: ignore[call-overload]
@@ -76,3 +77,40 @@ class RStatementPlugin(DuckdbSimplePlugin):
                 sql = f"SELECT UNNEST({function_name}(_ROW)) FROM (SELECT * FROM {source.alias}) AS _ROW"
                 logger.debug(sql)
                 return ddbc.sql(sql)
+
+class RColumnsPlugin(DuckdbSimplePlugin):
+    name = "R Columns Plugin"
+    description = "R plugin which converts every column to an R vector and back"
+    version = VERSION
+
+    rcode = TextParam("R Code")
+
+    def execute(
+        self, ddbc: DuckDBPyConnection, source: DuckDBPyRelation, row_limit: Optional[int] = None
+    ) -> DuckDBPyRelation:
+        df = source.df()
+        with robjects.conversion.localconverter(robjects.default_converter):
+            with robjects.environments.local_context() as environ:
+                for cname, dtype in zip(source.columns, source.dtypes):
+                    if duckdb_dtype_is_boolean(dtype):
+                        vec = robjects.BoolVector(df[cname])
+                    elif duckdb_dtype_is_integer(dtype):
+                        vec = robjects.IntVector(df[cname])
+                    elif duckdb_dtype_is_numeric(dtype):
+                        vec = robjects.FloatVector(df[cname])
+                    else:
+                        vec = robjects.StrVector(df[cname])
+                    environ[cname] = vec
+                if self.rcode.value:
+                    robjects.r(self.rcode.value)
+                for name, robj in environ.items():
+                    if name not in df:
+                        if len(robj) == 1:
+                               df[name] = robj[0]
+                        else:
+                            df[name] = list(robj)
+
+                ddbc.register('fnord', df)
+        return ddbc.table('fnord')
+
+

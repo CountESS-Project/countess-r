@@ -1,7 +1,8 @@
-from typing import Any, Dict, Optional, Mapping
+from typing import Any, Dict, Optional
 import secrets
 import logging
 
+import pandas
 from rpy2 import robjects
 from rpy2.rinterface_lib.embedded import RRuntimeError
 import duckdb
@@ -64,7 +65,7 @@ class RStatementPlugin(DuckdbSimplePlugin):
                                 df.update({ fname: schema[fname](func(**parameters)[0]) })
                             except (RRuntimeError, duckdb.InvalidInputException) as exc:
                                 df.update({ fname: None })
-                                logger.warning("CAUGHT EXCEPTION " + str(exc))
+                                logger.warning("CAUGHT EXCEPTION %s", str(exc))
                         return df
 
                 function_name = "f_" + secrets.token_hex(16)
@@ -89,6 +90,8 @@ class RColumnsPlugin(DuckdbSimplePlugin):
         self, ddbc: DuckDBPyConnection, source: DuckDBPyRelation, row_limit: Optional[int] = None
     ) -> DuckDBPyRelation:
         df = source.df()
+        table_name = f"t_{id(self)}"
+
         with robjects.conversion.localconverter(robjects.default_converter):
             with robjects.environments.local_context() as environ:
                 for cname, dtype in zip(source.columns, source.dtypes):
@@ -102,15 +105,20 @@ class RColumnsPlugin(DuckdbSimplePlugin):
                         vec = robjects.StrVector(df[cname])
                     environ[cname] = vec
                 if self.rcode.value:
-                    robjects.r(self.rcode.value)
-                for name, robj in environ.items():
-                    if name not in df:
-                        if len(robj) == 1:
-                               df[name] = robj[0]
-                        else:
-                            df[name] = list(robj)
-
-                ddbc.register('fnord', df)
-        return ddbc.table('fnord')
-
-
+                    ret = robjects.r(self.rcode.value)
+                    if ret is None:
+                        for name, robj in environ.items():
+                            if name not in df and not name.startswith("_"):
+                                df[name] = robj[0] if len(robj) == 1 else list(robj)
+                    elif isinstance(ret, robjects.ListVector):
+                        dd = {
+                            (f"{name}.{n}" if len(ee) > 1 else name): [ e ]
+                            for name, ee in ret.items()
+                            for n, e in enumerate(ee)
+                        }
+                        df = pandas.DataFrame(dd)
+                    elif isinstance(ret, robjects.Vector):
+                        dd = { 'result': list(ret) }
+                        df = pandas.DataFrame(dd)
+        ddbc.register(table_name, df)
+        return ddbc.table(table_name)
